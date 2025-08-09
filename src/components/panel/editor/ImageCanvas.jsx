@@ -338,7 +338,8 @@ const ImageCanvas = memo(({
   onSelectMask, activeMaskId, activeMaskContainerId,
   updateSubMask, setIsMaskHovered, isMaskControlHovered,
   brushSettings, onGenerateAiMask, isStraightenActive, onStraighten,
-  isAiEditing, activeAiPatchContainerId, activeAiSubMaskId, onSelectAiSubMask
+  isAiEditing, activeAiPatchContainerId, activeAiSubMaskId, onSelectAiSubMask,
+  onQuickErase
 }) => {
   const [isCropViewVisible, setIsCropViewVisible] = useState(false);
   const imagePathRef = useRef(null);
@@ -376,7 +377,7 @@ const ImageCanvas = memo(({
   }, [activeContainer, activeMaskId, activeAiSubMaskId, isMasking, isAiEditing]);
 
   const isBrushActive = (isMasking || isAiEditing) && activeSubMask?.type === 'brush';
-  const isAiSubjectActive = (isMasking || isAiEditing) && activeSubMask?.type === 'ai-subject';
+  const isAiSubjectActive = (isMasking || isAiEditing) && (activeSubMask?.type === 'ai-subject' || activeSubMask?.type === 'quick-eraser');
 
   const sortedSubMasks = useMemo(() => {
     if (!activeContainer) return [];
@@ -545,7 +546,7 @@ const ImageCanvas = memo(({
 
     const activeId = isMasking ? activeMaskId : activeAiSubMaskId;
 
-    if (isAiSubjectActive) {
+    if (activeSubMask?.type === 'ai-subject' || activeSubMask?.type === 'quick-eraser') {
       const points = line.points;
       if (points.length > 1) {
         const xs = points.map(p => p.x);
@@ -558,8 +559,10 @@ const ImageCanvas = memo(({
         const startPoint = { x: minX / scale + cropX, y: minY / scale + cropY };
         const endPoint = { x: maxX / scale + cropX, y: maxY / scale + cropY };
 
-        if (onGenerateAiMask) {
-            onGenerateAiMask(activeId, startPoint, endPoint);
+        if (activeSubMask.type === 'quick-eraser' && onQuickErase) {
+          onQuickErase(activeId, startPoint, endPoint);
+        } else if (activeSubMask.type === 'ai-subject' && onGenerateAiMask) {
+          onGenerateAiMask(activeId, startPoint, endPoint);
         }
       }
     } else if (isBrushActive) {
@@ -593,7 +596,7 @@ const ImageCanvas = memo(({
         });
       }
     }
-  }, [isBrushActive, isAiSubjectActive, activeSubMask, activeMaskId, activeAiSubMaskId, updateSubMask, adjustments.crop, imageRenderSize.scale, brushSettings, onGenerateAiMask, isMasking, isAiEditing]);
+  }, [isBrushActive, activeSubMask, activeMaskId, activeAiSubMaskId, updateSubMask, adjustments.crop, imageRenderSize.scale, brushSettings, onGenerateAiMask, isMasking, isAiEditing, onQuickErase]);
 
   const handleMouseEnter = useCallback(() => {
     if (isBrushActive || isAiSubjectActive) {
