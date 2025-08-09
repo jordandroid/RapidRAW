@@ -31,6 +31,14 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     }
   }, [isSelected]);
 
+  // Scale UI handle sizes with zoom so they remain usable when zooming in/out
+  const uiScale = useMemo(() => {
+    // clamp to avoid extremes
+    return Math.min(3, Math.max(0.5, scale || 1));
+  }, [scale]);
+  const transformerAnchorSize = Math.round(10 * uiScale);
+  const linearHandleRadius = Math.round(8 * uiScale);
+
   const handleRadialDrag = useCallback((e) => {
     onUpdate(subMask.id, {
       parameters: {
@@ -203,7 +211,13 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
           {...commonProps}
         />
         {isSelected && (
-          <Transformer ref={trRef} boundBoxFunc={(oldBox, newBox) => newBox} onMouseEnter={onMaskMouseEnter} onMouseLeave={onMaskMouseLeave} />
+          <Transformer
+            ref={trRef}
+            boundBoxFunc={(oldBox, newBox) => newBox}
+            anchorSize={transformerAnchorSize}
+            onMouseEnter={onMaskMouseEnter}
+            onMouseLeave={onMaskMouseLeave}
+          />
         )}
       </>
     );
@@ -286,7 +300,7 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
             <Circle
               x={-scaledLen / 2}
               y={0}
-              radius={8}
+              radius={linearHandleRadius}
               fill="#0ea5e9"
               stroke="white"
               strokeWidth={2}
@@ -299,7 +313,7 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
             <Circle
               x={scaledLen / 2}
               y={0}
-              radius={8}
+              radius={linearHandleRadius}
               fill="#0ea5e9"
               stroke="white"
               strokeWidth={2}
