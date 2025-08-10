@@ -68,6 +68,7 @@ pub struct CachedPreview {
     transform_hash: u64,
     scale: f32,
     unscaled_crop_offset: (f32, f32),
+    zoom_level: f32,  // Add zoom level to cache key
 }
 
 pub struct AppState {
@@ -236,6 +237,45 @@ fn generate_transformed_preview(
     Ok((final_preview_base, scale_for_gpu, unscaled_crop_offset))
 }
 
+fn generate_zoom_aware_preview(
+    loaded_image: &LoadedImage,
+    adjustments: &serde_json::Value,
+    zoom_level: f32,
+    app_handle: &tauri::AppHandle,
+) -> Result<(DynamicImage, f32, (f32, f32)), String> {
+    let patched_original_image = composite_patches_on_image(&loaded_image.image, adjustments)
+        .map_err(|e| format!("Failed to composite AI patches: {}", e))?;
+    
+    let (full_w, full_h) = (loaded_image.full_width, loaded_image.full_height);
+
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let base_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
+    
+    // Calculate target resolution based on zoom level
+    let target_dim = (base_preview_dim as f32 * zoom_level).round() as u32;
+    
+    // Cap at full image resolution to avoid upscaling artifacts
+    let max_dim = std::cmp::max(full_w, full_h);
+    let final_target_dim = std::cmp::min(target_dim, max_dim);
+    
+    let (processing_base, scale_for_gpu) = 
+        if full_w > final_target_dim || full_h > final_target_dim {
+            // Downscale to target resolution
+            let base = patched_original_image.thumbnail(final_target_dim, final_target_dim);
+            let scale = if full_w > 0 { base.width() as f32 / full_w as f32 } else { 1.0 };
+            (base, scale)
+        } else {
+            // Use full resolution (no downscaling needed)
+            // If zoom level exceeds full resolution, we'll let the frontend handle pixel duplication
+            (patched_original_image.clone(), 1.0)
+        };
+
+    let (final_preview_base, unscaled_crop_offset) = 
+        apply_all_transformations(&processing_base, adjustments, scale_for_gpu);
+    
+    Ok((final_preview_base, scale_for_gpu, unscaled_crop_offset))
+}
+
 fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String> {
     let rgb_image = image.to_rgb8();
 
@@ -335,6 +375,7 @@ fn apply_adjustments(
                     transform_hash: new_transform_hash,
                     scale,
                     unscaled_crop_offset: offset,
+                    zoom_level: 1.0, // Default zoom level
                 });
                 (base, scale, offset)
             }
@@ -345,6 +386,7 @@ fn apply_adjustments(
                 transform_hash: new_transform_hash,
                 scale,
                 unscaled_crop_offset: offset,
+                zoom_level: 1.0, // Default zoom level
             });
             (base, scale, offset)
         };
@@ -1281,6 +1323,77 @@ async fn save_panorama(
     Ok(output_path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn generate_zoom_preview(
+    js_adjustments: serde_json::Value,
+    zoom_level: f32,
+    state: tauri::State<AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let context = get_or_init_gpu_context(&state)?;
+    let adjustments_clone = js_adjustments.clone();
+    
+    let loaded_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+    let new_transform_hash = calculate_transform_hash(&adjustments_clone);
+
+    let mut cached_preview_lock = state.cached_preview.lock().unwrap();
+    
+    let (final_preview_base, scale_for_gpu, unscaled_crop_offset) = 
+        if let Some(cached) = &*cached_preview_lock {
+            if cached.transform_hash == new_transform_hash && (cached.zoom_level - zoom_level).abs() < 0.1 {
+                // Use cached preview if transform hash matches and zoom level is close
+                (cached.image.clone(), cached.scale, cached.unscaled_crop_offset)
+            } else {
+                // Generate new preview for this zoom level
+                let (base, scale, offset) = generate_zoom_aware_preview(&loaded_image, &adjustments_clone, zoom_level, &app_handle)?;
+                *cached_preview_lock = Some(CachedPreview {
+                    image: base.clone(),
+                    transform_hash: new_transform_hash,
+                    scale,
+                    unscaled_crop_offset: offset,
+                    zoom_level,
+                });
+                (base, scale, offset)
+            }
+        } else {
+            let (base, scale, offset) = generate_zoom_aware_preview(&loaded_image, &adjustments_clone, zoom_level, &app_handle)?;
+            *cached_preview_lock = Some(CachedPreview {
+                image: base.clone(),
+                transform_hash: new_transform_hash,
+                scale,
+                unscaled_crop_offset: offset,
+                zoom_level,
+            });
+            (base, scale, offset)
+        };
+    
+    drop(cached_preview_lock);
+    
+    thread::spawn(move || {
+        let (preview_width, preview_height) = final_preview_base.dimensions();
+
+        let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+            .and_then(|m| serde_json::from_value(m.clone()).ok())
+            .unwrap_or_else(Vec::new);
+
+        let scaled_crop_offset = (unscaled_crop_offset.0 * scale_for_gpu, unscaled_crop_offset.1 * scale_for_gpu);
+
+        let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+            .filter_map(|def| generate_mask_bitmap(def, preview_width, preview_height, scale_for_gpu, scaled_crop_offset))
+            .collect();
+
+        let final_adjustments = get_all_adjustments_from_json(&adjustments_clone);
+
+        if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments, &mask_bitmaps) {
+            if let Ok(base64_str) = encode_to_base64(&final_processed_image, 88) {
+                let _ = app_handle.emit("preview-update-zoom", base64_str);
+            }
+        }
+    });
+
+    Ok(())
+}
+
 fn apply_window_effect(theme: String, window: impl raw_window_handle::HasWindowHandle) {
     #[cfg(target_os = "windows")]
     {
@@ -1382,6 +1495,7 @@ fn main() {
             generate_fullscreen_preview,
             generate_preset_preview,
             generate_uncropped_preview,
+            generate_zoom_preview,
             generate_mask_overlay,
             generate_ai_subject_mask,
             generate_ai_foreground_mask,

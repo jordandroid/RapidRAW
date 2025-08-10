@@ -16,7 +16,7 @@ function linesIntersect(eraserLine, drawnLine) {
   return false;
 }
 
-const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMaskMouseEnter, onMaskMouseLeave, adjustments }) => {
+const MaskOverlay = memo(({ subMask, scale, currentZoom = 1.0, onUpdate, isSelected, onSelect, onMaskMouseEnter, onMaskMouseLeave, adjustments }) => {
   const shapeRef = useRef();
   const trRef = useRef();
 
@@ -32,10 +32,11 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
   }, [isSelected]);
 
   // Scale UI handle sizes with zoom so they remain usable when zooming in/out
+  const effectiveScale = scale / currentZoom;
   const uiScale = useMemo(() => {
     // clamp to avoid extremes
-    return Math.min(3, Math.max(0.5, scale || 1));
-  }, [scale]);
+    return Math.min(3, Math.max(0.5, effectiveScale || 1));
+  }, [effectiveScale]);
   const transformerAnchorSize = Math.round(10 * uiScale);
   const linearHandleRadius = Math.round(8 * uiScale);
 
@@ -43,11 +44,11 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     onUpdate(subMask.id, {
       parameters: {
         ...subMask.parameters,
-        centerX: (e.target.x() / scale) + cropX,
-        centerY: (e.target.y() / scale) + cropY
+        centerX: (e.target.x() / effectiveScale) + cropX,
+        centerY: (e.target.y() / effectiveScale) + cropY
       },
     });
-  }, [subMask.id, subMask.parameters, onUpdate, scale, cropX, cropY]);
+  }, [subMask.id, subMask.parameters, onUpdate, effectiveScale, cropX, cropY]);
 
   const handleRadialTransform = useCallback(() => {
     const node = shapeRef.current;
@@ -56,14 +57,14 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     onUpdate(subMask.id, {
       parameters: {
         ...subMask.parameters,
-        centerX: (node.x() / scale) + cropX,
-        centerY: (node.y() / scale) + cropY,
-        radiusX: (node.radiusX() * node.scaleX()) / scale,
-        radiusY: (node.radiusY() * node.scaleY()) / scale,
+        centerX: (node.x() / effectiveScale) + cropX,
+        centerY: (node.y() / effectiveScale) + cropY,
+        radiusX: (node.radiusX() * node.scaleX()) / effectiveScale,
+        radiusY: (node.radiusY() * node.scaleY()) / effectiveScale,
         rotation: node.rotation(),
       },
     });
-  }, [subMask.id, subMask.parameters, onUpdate, scale, cropX, cropY]);
+  }, [subMask.id, subMask.parameters, onUpdate, effectiveScale, cropX, cropY]);
 
   const handleRadialTransformEnd = useCallback(() => {
     const node = shapeRef.current;
@@ -78,14 +79,14 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     onUpdate(subMask.id, {
       parameters: {
         ...subMask.parameters,
-        centerX: (node.x() / scale) + cropX,
-        centerY: (node.y() / scale) + cropY,
-        radiusX: (node.radiusX() * scaleX) / scale,
-        radiusY: (node.radiusY() * scaleY) / scale,
+        centerX: (node.x() / effectiveScale) + cropX,
+        centerY: (node.y() / effectiveScale) + cropY,
+        radiusX: (node.radiusX() * scaleX) / effectiveScale,
+        radiusY: (node.radiusY() * scaleY) / effectiveScale,
         rotation: node.rotation(),
       },
     });
-  }, [subMask.id, subMask.parameters, onUpdate, scale, cropX, cropY]);
+  }, [subMask.id, subMask.parameters, onUpdate, effectiveScale, cropX, cropY]);
 
   const handleGroupDragEnd = (e) => {
     const group = e.target;
@@ -94,17 +95,17 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     const dy = endY - startY;
     const centerX = startX + dx / 2;
     const centerY = startY + dy / 2;
-    const groupX = (centerX - cropX) * scale;
-    const groupY = (centerY - cropY) * scale;
+    const groupX = (centerX - cropX) * effectiveScale;
+    const groupY = (centerY - cropY) * effectiveScale;
     const moveX = group.x() - groupX;
     const moveY = group.y() - groupY;
     onUpdate(subMask.id, {
       parameters: {
         ...subMask.parameters,
-        startX: startX + moveX / scale,
-        startY: startY + moveY / scale,
-        endX: endX + moveX / scale,
-        endY: endY + moveY / scale,
+        startX: startX + moveX / effectiveScale,
+        startY: startY + moveY / effectiveScale,
+        endX: endX + moveX / effectiveScale,
+        endY: endY + moveY / effectiveScale,
       }
     });
   };
@@ -114,8 +115,8 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     const pointerPos = stage.getPointerPosition();
     if (!pointerPos) return;
 
-    const newX = (pointerPos.x / scale) + cropX;
-    const newY = (pointerPos.y / scale) + cropY;
+    const newX = (pointerPos.x / effectiveScale) + cropX;
+    const newY = (pointerPos.y / effectiveScale) + cropY;
 
     const newParams = { ...subMask.parameters };
     if (point === 'start') {
@@ -129,7 +130,7 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
   };
 
   const handleRangeDrag = (e) => {
-    const newRange = Math.abs(e.target.y() / scale);
+    const newRange = Math.abs(e.target.y() / effectiveScale);
     onUpdate(subMask.id, {
       parameters: { ...subMask.parameters, range: newRange }
     });
@@ -154,10 +155,10 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     if (endX > startX && endY > startY) {
       return (
         <Rect
-          x={(startX - cropX) * scale}
-          y={(startY - cropY) * scale}
-          width={(endX - startX) * scale}
-          height={(endY - startY) * scale}
+          x={(startX - cropX) * effectiveScale}
+          y={(startY - cropY) * effectiveScale}
+          width={(endX - startX) * effectiveScale}
+          height={(endY - startY) * effectiveScale}
           onMouseEnter={onMaskMouseEnter}
           onMouseLeave={onMaskMouseLeave}
           {...commonProps}
@@ -174,12 +175,12 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
         {lines.map((line, i) => (
           <Line
             key={i}
-            points={line.points.flatMap(p => [(p.x - cropX) * scale, (p.y - cropY) * scale])}
+            points={line.points.flatMap(p => [(p.x - cropX) * effectiveScale, (p.y - cropY) * effectiveScale])}
             stroke={isSelected ? '#0ea5e9' : (subMask.mode === 'subtractive' ? '#f43f5e' : 'white')}
             strokeWidth={isSelected ? 3 : 2}
             dash={[4, 4]}
             opacity={isSelected ? 1 : 0.7}
-            hitStrokeWidth={line.brushSize * scale}
+            hitStrokeWidth={line.brushSize * effectiveScale}
             strokeScaleEnabled={false}
             tension={0.5}
             lineCap="round"
@@ -196,10 +197,10 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
       <>
         <Ellipse
           ref={shapeRef}
-          x={(centerX - cropX) * scale}
-          y={(centerY - cropY) * scale}
-          radiusX={radiusX * scale}
-          radiusY={radiusY * scale}
+          x={(centerX - cropX) * effectiveScale}
+          y={(centerY - cropY) * effectiveScale}
+          radiusX={radiusX * effectiveScale}
+          radiusY={radiusY * effectiveScale}
           rotation={rotation}
           draggable
           onDragMove={handleRadialDrag}
@@ -231,10 +232,10 @@ const MaskOverlay = memo(({ subMask, scale, onUpdate, isSelected, onSelect, onMa
     const angle = Math.atan2(dy, dx);
     const centerX = startX + dx / 2;
     const centerY = startY + dy / 2;
-    const groupX = (centerX - cropX) * scale;
-    const groupY = (centerY - cropY) * scale;
-    const scaledLen = len * scale;
-    const r = range * scale;
+    const groupX = (centerX - cropX) * effectiveScale;
+    const groupY = (centerY - cropY) * effectiveScale;
+    const scaledLen = len * effectiveScale;
+    const r = range * effectiveScale;
 
     const lineProps = {
       ...commonProps,
@@ -339,7 +340,7 @@ const ImageCanvas = memo(({
   updateSubMask, setIsMaskHovered, isMaskControlHovered,
   brushSettings, onGenerateAiMask, isStraightenActive, onStraighten,
   isAiEditing, activeAiPatchContainerId, activeAiSubMaskId, onSelectAiSubMask,
-  onQuickErase
+  onQuickErase, currentZoom = 1.0
 }) => {
   const [isCropViewVisible, setIsCropViewVisible] = useState(false);
   const imagePathRef = useRef(null);
@@ -544,6 +545,9 @@ const ImageCanvas = memo(({
     const cropX = adjustments.crop?.x || 0;
     const cropY = adjustments.crop?.y || 0;
 
+    // Adjust scale for zoom-aware previews
+    const effectiveScale = scale / currentZoom;
+
     const activeId = isMasking ? activeMaskId : activeAiSubMaskId;
 
     if (activeSubMask?.type === 'ai-subject' || activeSubMask?.type === 'quick-eraser') {
@@ -556,8 +560,8 @@ const ImageCanvas = memo(({
         const maxX = Math.max(...xs);
         const maxY = Math.max(...ys);
 
-        const startPoint = { x: minX / scale + cropX, y: minY / scale + cropY };
-        const endPoint = { x: maxX / scale + cropX, y: maxY / scale + cropY };
+        const startPoint = { x: minX / effectiveScale + cropX, y: minY / effectiveScale + cropY };
+        const endPoint = { x: maxX / effectiveScale + cropX, y: maxY / effectiveScale + cropY };
 
         if (activeSubMask.type === 'quick-eraser' && onQuickErase) {
           onQuickErase(activeId, startPoint, endPoint);
@@ -568,11 +572,11 @@ const ImageCanvas = memo(({
     } else if (isBrushActive) {
       const imageSpaceLine = {
         tool: brushSettings.tool,
-        brushSize: brushSettings.size / scale,
+        brushSize: brushSettings.size / effectiveScale,
         feather: brushSettings.feather / 100,
         points: line.points.map(p => ({
-          x: p.x / scale + cropX,
-          y: p.y / scale + cropY,
+          x: p.x / effectiveScale + cropX,
+          y: p.y / effectiveScale + cropY,
         }))
       };
 
@@ -794,6 +798,7 @@ const ImageCanvas = memo(({
                 key={subMask.id}
                 subMask={subMask}
                 scale={imageRenderSize.scale}
+                currentZoom={currentZoom}
                 onUpdate={updateSubMask}
                 isSelected={subMask.id === (isMasking ? activeMaskId : activeAiSubMaskId)}
                 onSelect={() => (isMasking ? onSelectMask(subMask.id) : onSelectAiSubMask(subMask.id))}

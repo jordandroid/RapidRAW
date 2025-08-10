@@ -171,6 +171,21 @@ export default function MasksPanel({
     setAdjustments(prev => ({ ...prev, masks: [...(prev.masks || []), newContainer] }));
   };
 
+  // Expose handlers for keyboard shortcuts via window object flags set in App/useKeyboardShortcuts
+  useEffect(() => {
+    window.__rapidraw_copyMaskContainer = () => {
+      const container = adjustments.masks.find(m => m.id === activeMaskContainerId);
+      if (container) setCopiedMask(container);
+    };
+    window.__rapidraw_pasteMaskContainer = () => {
+      handlePasteContainer();
+    };
+    return () => {
+      delete window.__rapidraw_copyMaskContainer;
+      delete window.__rapidraw_pasteMaskContainer;
+    };
+  }, [adjustments.masks, activeMaskContainerId, setCopiedMask, handlePasteContainer]);
+
   const handlePasteContainerAdjustments = (targetContainerId) => {
     if (!copiedMask) return;
     setAdjustments(prev => ({
@@ -320,12 +335,25 @@ export default function MasksPanel({
                           autoFocus
                         />
                       ) : (
-                        <span className="font-medium text-sm text-text-primary truncate">{container.name}</span>
+                        <span 
+                          className="font-medium text-sm text-text-primary truncate cursor-pointer px-1 -mx-1 rounded hover:bg-surface/50"
+                          onDoubleClick={(e) => { e.stopPropagation(); handleStartRename(container); }}
+                          title="Double-click to rename"
+                        >
+                          {container.name}
+                        </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button onClick={(e) => { e.stopPropagation(); handleToggleContainerVisibility(container.id); }} className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary" title={container.visible ? "Hide Mask" : "Show Mask"}>
                         {container.visible ? <Eye size={16} /> : <EyeOff size={16} />}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDuplicateContainer(container); }}
+                        className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary"
+                        title="Duplicate Mask"
+                      >
+                        <PlusSquare size={16} />
                       </button>
                       <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container.id); }} className="p-1.5 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-500/10" title="Delete Mask">
                         <Trash2 size={16} />

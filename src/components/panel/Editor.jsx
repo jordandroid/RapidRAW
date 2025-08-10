@@ -15,7 +15,7 @@ import Waveform from './editor/Waveform';
 
 export default function Editor({
   selectedImage, finalPreviewUrl, uncroppedAdjustedPreviewUrl,
-  showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
+  zoomPreviewUrl, isZoomPreviewLoading, showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
   isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel,
   adjustments, setAdjustments, thumbnails, activeMaskId, activeMaskContainerId,
   activeAiPatchContainerId, activeAiSubMaskId,
@@ -23,7 +23,7 @@ export default function Editor({
   onUndo, onRedo, canUndo, canRedo, brushSettings,
   onGenerateAiMask, isMaskControlHovered,
   targetZoom, waveform, isWaveformVisible, onCloseWaveform, onToggleWaveform, isStraightenActive, onStraighten,
-  onQuickErase,
+  onQuickErase, onZoomChange,
 }) {
   const [crop, setCrop] = useState();
   const prevCropParams = useRef(null);
@@ -34,7 +34,44 @@ export default function Editor({
   const imageContainerRef = useRef(null);
   const isInitialMount = useRef(true);
   const transformStateRef = useRef(transformState);
+  const lastZoomPreviewLevel = useRef(1.0);
   transformStateRef.current = transformState;
+
+  // Determine if we should use zoom-aware preview based on zoom level
+  const shouldUseZoomPreview = useMemo(() => {
+    return transformState.scale > 1.5 && zoomPreviewUrl && !isZoomPreviewLoading;
+  }, [transformState.scale, zoomPreviewUrl, isZoomPreviewLoading]);
+
+  // Handle zoom boundaries and fallback to base preview
+  const effectivePreviewUrl = useMemo(() => {
+    // Use zoom preview only when zoomed in significantly and preview is available
+    if (shouldUseZoomPreview) {
+      return zoomPreviewUrl;
+    }
+    // Fallback to base preview for normal zoom levels or when zoom preview is loading
+    // Note: When zooming beyond full image resolution, CSS transforms will handle pixel duplication
+    // (like GIMP/Photoshop) automatically through the TransformWrapper component
+    return finalPreviewUrl;
+  }, [shouldUseZoomPreview, zoomPreviewUrl, finalPreviewUrl]);
+
+  // Trigger zoom preview generation when zoom level changes significantly
+  useEffect(() => {
+    const currentZoom = transformState.scale;
+    const lastZoom = lastZoomPreviewLevel.current;
+    
+    // Generate zoom preview if zoom level changed significantly (more than 0.5x difference)
+    // Only generate for zoom levels > 1.2x to avoid unnecessary processing
+    if (Math.abs(currentZoom - lastZoom) > 0.5 && currentZoom > 1.2 && onZoomChange) {
+      lastZoomPreviewLevel.current = currentZoom;
+      onZoomChange(adjustments, currentZoom);
+    }
+    
+    // Reset zoom preview when zooming out significantly
+    if (currentZoom <= 1.0 && lastZoom > 1.5) {
+      lastZoomPreviewLevel.current = 1.0;
+      // The system will automatically fall back to base preview
+    }
+  }, [transformState.scale, adjustments, onZoomChange]);
 
   useEffect(() => {
     if (!transformWrapperRef.current) {
@@ -318,6 +355,14 @@ export default function Editor({
             </div>
           )}
 
+          {/* Zoom preview loading indicator */}
+          {isZoomPreviewLoading && transformState.scale > 1.5 && (
+            <div className="absolute top-4 right-4 bg-bg-secondary/90 rounded-lg px-3 py-2 text-sm text-text-primary z-40 flex items-center gap-2">
+              <Loader2 size={16} className="animate-spin text-accent" />
+              <span>Generating high-res preview...</span>
+            </div>
+          )}
+
           <TransformWrapper
             key={selectedImage.path}
             ref={transformWrapperRef}
@@ -331,6 +376,9 @@ export default function Editor({
               setTransformState(state);
               onZoomed(state);
             }}
+            // Ensure smooth transitions when switching between preview types
+            wheel={{ step: 0.1 }}
+            pinch={{ step: 5 }}
           >
             <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <ImageCanvas
@@ -343,8 +391,8 @@ export default function Editor({
                 isMasking={isMasking}
                 imageRenderSize={imageRenderSize}
                 showOriginal={showOriginal}
-                finalPreviewUrl={finalPreviewUrl}
-                isAdjusting={isAdjusting}
+                finalPreviewUrl={effectivePreviewUrl}
+                isAdjusting={isAdjusting || isZoomPreviewLoading}
                 uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
                 maskOverlayUrl={maskOverlayUrl}
                 onSelectMask={onSelectMask}
@@ -363,6 +411,7 @@ export default function Editor({
                 onSelectAiSubMask={onSelectAiSubMask}
                 isStraightenActive={isStraightenActive}
                 onStraighten={onStraighten}
+                currentZoom={transformState.scale}
               />
             </TransformComponent>
           </TransformWrapper>

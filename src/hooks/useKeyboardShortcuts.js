@@ -14,6 +14,7 @@ export const useKeyboardShortcuts = ({
   activeMaskId,
   activeAiSubMaskId,
   activeAiPatchContainerId,
+  activeMaskContainerId,
   customEscapeHandler,
   copiedFilePaths,
   isStraightenActive,
@@ -26,6 +27,8 @@ export const useKeyboardShortcuts = ({
   handleDeleteSelected,
   handleCopyAdjustments,
   handlePasteAdjustments,
+  handleCopyMaskContainer,
+  handlePasteMaskContainer,
   handlePasteFiles,
   setCopiedFilePaths,
   undo,
@@ -147,8 +150,28 @@ export const useKeyboardShortcuts = ({
 
       if (isCtrl) {
         switch (key) {
-          case 'c': event.preventDefault(); if (event.shiftKey) { if (multiSelectedPaths.length > 0) { setCopiedFilePaths(multiSelectedPaths); } } else handleCopyAdjustments(); break;
-          case 'v': event.preventDefault(); if (event.shiftKey) handlePasteFiles('copy'); else handlePasteAdjustments(); break;
+          case 'c': {
+            event.preventDefault();
+            if (event.shiftKey) {
+              if (multiSelectedPaths.length > 0) { setCopiedFilePaths(multiSelectedPaths); }
+            } else if (selectedImage && activeRightPanel === 'masks' && activeMaskContainerId && typeof handleCopyMaskContainer === 'function') {
+              handleCopyMaskContainer();
+            } else {
+              handleCopyAdjustments();
+            }
+            break;
+          }
+          case 'v': {
+            event.preventDefault();
+            if (event.shiftKey) {
+              handlePasteFiles('copy');
+            } else if (selectedImage && activeRightPanel === 'masks' && typeof handlePasteMaskContainer === 'function') {
+              handlePasteMaskContainer();
+            } else {
+              handlePasteAdjustments();
+            }
+            break;
+          }
           case 'a': event.preventDefault(); if (sortedImageList.length > 0) { setMultiSelectedPaths(sortedImageList.map(f => f.path)); if (!selectedImage) setLibraryActivePath(sortedImageList[sortedImageList.length - 1].path); } break;
           case 'z': if (selectedImage) { event.preventDefault(); undo(); } break;
           case 'y': if (selectedImage) { event.preventDefault(); redo(); } break;
@@ -160,5 +183,5 @@ export const useKeyboardShortcuts = ({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [ sortedImageList, selectedImage, undo, redo, isFullScreen, handleToggleFullScreen, handleBackToLibrary, handleRightPanelSelect, handleRate, handleSetColorLabel, handleDeleteSelected, handleCopyAdjustments, handlePasteAdjustments, multiSelectedPaths, copiedFilePaths, handlePasteFiles, libraryActivePath, handleImageSelect, zoom, handleZoomChange, customEscapeHandler, activeMaskId, activeAiSubMaskId, activeAiPatchContainerId, isViewLoading, activeRightPanel, canRedo, canUndo, isStraightenActive, setIsStraightenActive, setActiveMaskId, setActiveAiSubMaskId, onSelectPatchContainer, setCopiedFilePaths, setIsWaveformVisible, setLibraryActivePath, setMultiSelectedPaths, setShowOriginal ]);
+  }, [ sortedImageList, selectedImage, undo, redo, isFullScreen, handleToggleFullScreen, handleBackToLibrary, handleRightPanelSelect, handleRate, handleSetColorLabel, handleDeleteSelected, handleCopyAdjustments, handlePasteAdjustments, handleCopyMaskContainer, handlePasteMaskContainer, multiSelectedPaths, copiedFilePaths, handlePasteFiles, libraryActivePath, handleImageSelect, zoom, handleZoomChange, customEscapeHandler, activeMaskId, activeMaskContainerId, activeAiSubMaskId, activeAiPatchContainerId, isViewLoading, activeRightPanel, canRedo, canUndo, isStraightenActive, setIsStraightenActive, setActiveMaskId, setActiveAiSubMaskId, onSelectPatchContainer, setCopiedFilePaths, setIsWaveformVisible, setLibraryActivePath, setMultiSelectedPaths, setShowOriginal ]);
 };

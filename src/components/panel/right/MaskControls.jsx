@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RotateCcw, Copy, ClipboardPaste, Circle, TriangleRight, Brush, Droplet, Sparkles, User,
-  Trash2, Eye, EyeOff, Plus, Minus
+  Trash2, Eye, EyeOff, Plus, Minus, PlusSquare
 } from 'lucide-react';
 
 import CollapsibleSection from '../../ui/CollapsibleSection';
@@ -121,12 +121,33 @@ export default function MaskControls({
     }, 200);
   };
 
+  const handleDuplicateSubMask = (containerId, subMaskToDuplicate) => {
+    const newSubMask = JSON.parse(JSON.stringify(subMaskToDuplicate));
+    newSubMask.id = uuidv4();
+    setAdjustments(prev => ({
+      ...prev,
+      masks: prev.masks.map(c => {
+        if (c.id !== containerId) return c;
+        const index = c.subMasks.findIndex(sm => sm.id === subMaskToDuplicate.id);
+        const newSubMasks = [...c.subMasks];
+        newSubMasks.splice(index + 1, 0, newSubMask);
+        return { ...c, subMasks: newSubMasks };
+      })
+    }));
+    onSelectMask(newSubMask.id);
+  };
+
   const handleDeselectSubMask = () => onSelectMask(null);
 
   const handleSubMaskContextMenu = (event, subMask) => {
     event.preventDefault();
     event.stopPropagation();
     const options = [
+      {
+        label: 'Duplicate Component',
+        icon: PlusSquare,
+        onClick: () => handleDuplicateSubMask(editingMask.id, subMask)
+      },
       {
         label: 'Delete Component',
         icon: Trash2,
@@ -254,6 +275,9 @@ export default function MaskControls({
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); updateSubMask(subMask.id, { visible: !subMask.visible }); }} className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary" title={subMask.visible ? "Hide" : "Show"}>
                       {subMask.visible ? <Eye size={16} /> : <EyeOff size={16} />}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDuplicateSubMask(editingMask.id, subMask); }} className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary" title="Duplicate">
+                      <PlusSquare size={16} />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); handleDeleteSubMask(editingMask.id, subMask.id); }} className="p-1.5 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-500/10" title="Delete">
                       <Trash2 size={16} />

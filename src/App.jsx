@@ -69,6 +69,8 @@ function App() {
   const [libraryActiveAdjustments, setLibraryActiveAdjustments] = useState(INITIAL_ADJUSTMENTS);
   const [finalPreviewUrl, setFinalPreviewUrl] = useState(null);
   const [uncroppedAdjustedPreviewUrl, setUncroppedAdjustedPreviewUrl] = useState(null);
+  const [zoomPreviewUrl, setZoomPreviewUrl] = useState(null); // Add zoom-aware preview URL
+  const [isZoomPreviewLoading, setIsZoomPreviewLoading] = useState(false);
   const { state: historyAdjustments, setState: setHistoryAdjustments, undo: undoAdjustments, redo: redoAdjustments, canUndo, canRedo, resetHistory: resetAdjustmentsHistory } = useHistoryState(INITIAL_ADJUSTMENTS);
   const [adjustments, setLiveAdjustments] = useState(INITIAL_ADJUSTMENTS);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -362,6 +364,20 @@ function App() {
       setIsGeneratingAi(false);
     }
   }, [selectedImage?.path, isGeneratingAi, adjustments, setAdjustments, setActiveAiPatchContainerId, setActiveAiSubMaskId]);
+
+  const handleCopyMaskContainer = useCallback(() => {
+    if (activeRightPanel !== 'masks' || !activeMaskContainerId) return;
+    const container = adjustments.masks.find(m => m.id === activeMaskContainerId);
+    if (container) setCopiedMask(container);
+  }, [activeRightPanel, activeMaskContainerId, adjustments.masks, setCopiedMask]);
+
+  const handlePasteMaskContainer = useCallback(() => {
+    if (activeRightPanel !== 'masks' || !copiedMask) return;
+    const newContainer = JSON.parse(JSON.stringify(copiedMask));
+    newContainer.id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    newContainer.subMasks = (newContainer.subMasks || []).map(sm => ({ ...sm, id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}` }));
+    setAdjustments(prev => ({ ...prev, masks: [...(prev.masks || []), newContainer] }));
+  }, [activeRightPanel, copiedMask, setAdjustments]);
 
   const handleDeleteAiPatch = useCallback((patchId) => {
     setAdjustments(prev => ({
@@ -1063,6 +1079,7 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
     activeRightPanel,
     isFullScreen,
     activeMaskId,
+    activeMaskContainerId,
     customEscapeHandler,
     copiedFilePaths,
     handleImageSelect,
@@ -1075,6 +1092,8 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
     handleDeleteSelected,
     handleCopyAdjustments,
     handlePasteAdjustments,
+    handleCopyMaskContainer,
+    handlePasteMaskContainer,
     handlePasteFiles,
     setCopiedFilePaths,
     undo,
@@ -1095,6 +1114,7 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
     const listeners = [
       listen('preview-update-final', (event) => { if (isEffectActive) { setFinalPreviewUrl(event.payload); setIsAdjusting(false); } }),
       listen('preview-update-uncropped', (event) => { if (isEffectActive) setUncroppedAdjustedPreviewUrl(event.payload); }),
+      listen('preview-update-zoom', (event) => { if (isEffectActive) { setZoomPreviewUrl(event.payload); setIsZoomPreviewLoading(false); } }),
       listen('histogram-update', (event) => { if (isEffectActive) setHistogram(event.payload); }),
       listen('waveform-update', (event) => { if (isEffectActive) setWaveform(event.payload); }),
       listen('thumbnail-generated', (event) => {
@@ -1777,6 +1797,8 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
               selectedImage={selectedImage}
               finalPreviewUrl={finalPreviewUrl}
               uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
+              zoomPreviewUrl={zoomPreviewUrl}
+              isZoomPreviewLoading={isZoomPreviewLoading}
               showOriginal={showOriginal}
               setShowOriginal={setShowOriginal}
               isAdjusting={isAdjusting}
@@ -1805,6 +1827,7 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
               transformWrapperRef={transformWrapperRef}
               onZoomed={handleUserTransform}
               targetZoom={zoom}
+              onZoomChange={debouncedGenerateZoomPreview}
               onContextMenu={handleEditorContextMenu}
               onUndo={undo}
               onRedo={redo}
@@ -1944,6 +1967,16 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
       </div>
     );
   };
+
+  const debouncedGenerateZoomPreview = useCallback(debounce((currentAdjustments, zoomLevel) => {
+    if (!selectedImage?.isReady) return;
+    setIsZoomPreviewLoading(true);
+    invoke('generate_zoom_preview', { jsAdjustments: currentAdjustments, zoomLevel })
+      .catch(err => {
+        console.error("Failed to generate zoom preview:", err);
+        setIsZoomPreviewLoading(false);
+      });
+  }, 100), [selectedImage?.isReady]);
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden select-none">
